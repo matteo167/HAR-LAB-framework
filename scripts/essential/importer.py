@@ -4,15 +4,20 @@ import shutil
 import argparse
 import importlib.util
 
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+sys.dont_write_bytecode = True
+
 def carregar_adaptador(caminho_script):
     spec = importlib.util.spec_from_file_location("importer_adapter", caminho_script)
     importer = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(importer)
     return importer
 
-def mover_ou_copiar_videos(pasta_origem, pasta_destino, nome_dataset, mode, importer_path):
+def mover_ou_copiar_videos(pasta_origem, pasta_destino, nome_dataset, mode, adapter_name):
+    adapter_location = "../../adapters/" + adapter_name
     extensoes_video = {'.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm'}
     videos_importados = []
+    video_id = 1  # Inicia o contador de IDs
 
     if not os.path.exists(pasta_destino):
         os.makedirs(pasta_destino)
@@ -26,10 +31,8 @@ def mover_ou_copiar_videos(pasta_origem, pasta_destino, nome_dataset, mode, impo
                 caminho_origem = os.path.join(raiz, arquivo)
                 subpastas = os.path.relpath(raiz, pasta_origem).split(os.sep)
 
-                partes_nome = [nome_dataset, nome]
-                if subpastas != ['.']:
-                    partes_nome.extend(subpastas)
-                novo_nome = "_".join(partes_nome) + extensao
+                # Novo nome baseado no dataset e no ID
+                novo_nome = f"{nome_dataset}_{video_id}{extensao}"
 
                 caminho_destino = os.path.join(pasta_destino, novo_nome)
 
@@ -42,21 +45,25 @@ def mover_ou_copiar_videos(pasta_origem, pasta_destino, nome_dataset, mode, impo
                         print(f"Copiado: {arquivo} -> {novo_nome}")
                     
                     videos_importados.append({
-                        "nome_arquivo": novo_nome,
+                        "nome_arquivo": nome,
+                        "novo_nome": novo_nome,
                         "subpastas": subpastas,
                         "origem": caminho_origem,
                         "destino": caminho_destino
                     })
+
+                    video_id += 1  # Incrementa o ID para o próximo vídeo
                 else:
                     print(f"Arquivo já existe (ignorado): {novo_nome}")
 
-    if importer_path and os.path.isfile(importer_path):
-        adaptador = carregar_adaptador(importer_path)
+    if adapter_location and os.path.isfile(adapter_location):
+        adaptador = carregar_adaptador(adapter_location)
         adaptador.gerar_metadados(videos_importados, pasta_destino, nome_dataset)
     else:
         print("Adaptador não encontrado ou não especificado.")
 
     print("Concluído!")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -64,9 +71,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("origem", help="Diretório de origem")
     parser.add_argument("dataset", help="Nome do dataset (prefixo)")
-    parser.add_argument("--mode", choices=["move", "copy"], required=True,
-                        help="Mover ou copiar arquivos")
-    parser.add_argument("--importer", help="Caminho para o script do adaptador", required=True)
+    parser.add_argument("--mode", choices=["move", "copy"], default="copy",
+                        help="Mover ou copiar arquivos (padrão: copy)")
+    parser.add_argument("--adapter", default="generic_adapter.py",
+                        help="Nome do script do adaptador (padrão: generic_adapter.py)")
 
     args = parser.parse_args()
 
@@ -75,4 +83,4 @@ if __name__ == "__main__":
         sys.exit(1)
 
     pasta_destino = "../../data/datasets/video"
-    mover_ou_copiar_videos(args.origem, pasta_destino, args.dataset, args.mode, args.importer)
+    mover_ou_copiar_videos(args.origem, pasta_destino, args.dataset, args.mode, args.adapter)
