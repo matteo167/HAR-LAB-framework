@@ -7,6 +7,11 @@ structure = {
     "metadata": ["1_videos.csv", "2_keypoints.csv", "3_models.csv", "4_metrics.csv"]
 }
 
+# Cabeçalhos padrão por arquivo de metadados (se quiser adicionar mais no futuro)
+headers = {
+    "1_videos.csv": "id,dataset,name,duration\n"
+}
+
 # Criação dos diretórios e arquivos
 for base_folder, items in structure.items():
     base_path = os.path.join(os.getcwd(), base_folder)
@@ -17,7 +22,7 @@ for base_folder, items in structure.items():
             # Só cria o arquivo se ele ainda não existir
             if not os.path.exists(path):
                 with open(path, "w") as f:
-                    f.write("")  # pode adicionar cabeçalho aqui se quiser
+                    f.write(headers.get(item, ""))  # adiciona cabeçalho se existir
         else:
             os.makedirs(path, exist_ok=True)
 
