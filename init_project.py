@@ -13,11 +13,12 @@ for base_folder, items in structure.items():
     os.makedirs(base_path, exist_ok=True)
     for item in items:
         path = os.path.join(base_path, item)
-        # Verifica se é um arquivo CSV (pela extensão)
         if item.endswith(".csv"):
-            with open(path, "w") as f:
-                f.write("id,name\n")  # exemplo de cabeçalho, pode ser ajustado
+            # Só cria o arquivo se ele ainda não existir
+            if not os.path.exists(path):
+                with open(path, "w") as f:
+                    f.write("")  # pode adicionar cabeçalho aqui se quiser
         else:
             os.makedirs(path, exist_ok=True)
 
-print("Estrutura criada com sucesso.")
+print("Estrutura criada com sucesso (sem sobrescrever arquivos existentes).")
