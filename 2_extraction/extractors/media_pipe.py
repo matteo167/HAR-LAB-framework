@@ -1,152 +1,123 @@
+#ex: python3 media_pipe.py mediapipe_v2 --model full --keypoints normalized --mdc 0.7 --mtc 0.6 --max 1
+
 import os
 import cv2
-import argparse
 import pandas as pd
 import mediapipe as mp
+import argparse
+
+# Argumentos do script
+parser = argparse.ArgumentParser(description="Extrair keypoints dos vídeos com MediaPipe.")
+parser.add_argument("extraction", type=str, help="Nome da extração (ex: mediapipe_v1)")
+parser.add_argument("--model", type=str, choices=["lite", "full", "heavy"], default="lite", help="Modelo MediaPipe Pose")
+parser.add_argument("--keypoints", type=str, choices=["normalized", "world"], default="world", help="Tipo de keypoints extraídos")
+parser.add_argument("--mdc", type=float, default=0.5, help="Confiança mínima de detecção (min_detection_confidence)")
+parser.add_argument("--mtc", type=float, default=0.5, help="Confiança mínima de rastreamento (min_tracking_confidence)")
+parser.add_argument("--max", type=int, default=1, help="Número máximo de pessoas (não aplicável em MediaPipe Pose atual)")
+args = parser.parse_args()
 
 # Constantes de diretórios e arquivos
 DATA_VIDEOS = "../../data/1_videos"
 DATA_KEYPOINTS = "../../data/2_keypoints"
-VIDEO_LISTS = "../../lists/1_videos/"
 METADATA_KEYPOINTS = "../../metadata/2_keypoints.csv"
-METADATA_VIDEO = "../../metadata/1_keypoints.csv"
+METADATA_VIDEO = "../../metadata/1_videos.csv"
 
-# Função principal de extração
-def process_video(
-    video_path, output_folder, model_name, model_complexity,
-    show_visual, keypoint_type, video_metadata_row,
-    extractor_name="mediapipe_pose", metadata_df=None
-):
-    with mp.solutions.pose.Pose(
-        static_image_mode=False,
-        model_complexity=model_complexity,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    ) as pose:
+# Inicializa o MediaPipe Pose com os parâmetros passados
+mp_pose = mp.solutions.pose
+pose = mp_pose.Pose(
+    model_complexity={"lite": 0, "full": 1, "heavy": 2}[args.model],
+    static_image_mode=False,
+    enable_segmentation=False,
+    min_detection_confidence=args.mdc,
+    min_tracking_confidence=args.mtc
+)
 
-        cap = cv2.VideoCapture(video_path)
-        data = []
-        frame_count = 0
+# Lê os metadados dos vídeos
+video_metadata = pd.read_csv(METADATA_VIDEO)
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+# Garante que a pasta de keypoints existe
+os.makedirs(DATA_KEYPOINTS, exist_ok=True)
 
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = pose.process(rgb_frame)
+# Define o próximo id_keypoint baseado nos arquivos existentes
+existing_files = os.listdir(DATA_KEYPOINTS)
+existing_ids = [int(f.split('.')[0]) for f in existing_files if f.endswith('.csv') and f.split('.')[0].isdigit()]
+next_id = max(existing_ids, default=0) + 1
 
-            if results.pose_landmarks:
-                # Extrair pontos-chave
-                if keypoint_type == "normalized":
-                    keypoints = [
-                        [lm.x, lm.y, lm.z, lm.visibility]
-                        for lm in results.pose_landmarks.landmark
-                    ]
-                elif keypoint_type == "world" and results.pose_world_landmarks:
-                    keypoints = [
-                        [lm.x, lm.y, lm.z, lm.visibility]
-                        for lm in results.pose_world_landmarks.landmark
-                    ]
-                else:
-                    keypoints = None
+# Lista para armazenar os dados dos metadados de keypoints
+keypoints_metadata = []
 
-                if keypoints is not None:
-                    flattened = [coord for point in keypoints for coord in point]
-                    data.append(flattened)
-                    frame_count += 1  # apenas frames com keypoints
+# Itera sobre os vídeos
+for idx, row in video_metadata.iterrows():
+    id_video = row["id_video"]
+    extension = row["extension"].lstrip(".")
+    video_filename = f"{id_video}.{extension}"
+    video_path = os.path.join(DATA_VIDEOS, video_filename)
+    
+    if not os.path.exists(video_path):
+        print(f"[AVISO] Vídeo não encontrado: {video_path}")
+        continue
 
-                if show_visual:
-                    mp.solutions.drawing_utils.draw_landmarks(
-                        frame, results.pose_landmarks, mp.solutions.pose.POSE_CONNECTIONS
-                    )
+    print(f"[INFO] Processando vídeo: {video_filename}")
 
-            if show_visual:
-                cv2.imshow("Pose Detection", frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
+    cap = cv2.VideoCapture(video_path)
+    frame_count = 0
+    keypoints_list = []
 
-        cap.release()
+    while cap.isOpened():
+        success, frame = cap.read()
+        if not success:
+            break
 
-        # Salvar CSV dos keypoints
-        if data:
-            columns = [f"{axis}_{i}" for i in range(33) for axis in ["x", "y", "z", "visibility"]]
-            base_name = os.path.splitext(os.path.basename(video_path))[0]
-            output_path = os.path.join(output_folder, f"{base_name}_{model_name}_{keypoint_type}.csv")
-            pd.DataFrame(data, columns=columns).to_csv(output_path, index=False)
+        frame_count += 1
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = pose.process(frame_rgb)
 
-        # Atualizar metadados
-        if metadata_df is not None:
-            meta_row = video_metadata_row.copy()
-            meta_row.update({
-                "extractor_name": extractor_name,
-                "model": model_name,
-                "keypoint_type": keypoint_type,
-                "number_of_frames": frame_count
-            })
-            metadata_df = pd.concat([metadata_df, pd.DataFrame([meta_row])], ignore_index=True)
+        if results.pose_landmarks:
+            landmarks = (
+                results.pose_world_landmarks.landmark if args.keypoints == "world"
+                else results.pose_landmarks.landmark
+            )
+            frame_keypoints = []
+            for lm in landmarks:
+                frame_keypoints.extend([lm.x, lm.y, lm.z, lm.visibility])
+            keypoints_list.append(frame_keypoints)
 
-        return metadata_df
+    cap.release()
 
-def main():
-    parser = argparse.ArgumentParser(description="Extrair pontos-chave de vídeos com MediaPipe Pose.")
-    parser.add_argument("list_name", help="CSV com lista de vídeos (sem extensão)")
-    parser.add_argument("--model", choices=["lite", "full", "heavy"], default="lite", help="Modelo MediaPipe")
-    parser.add_argument("--visual", action="store_true", help="Mostrar janela de visualização")
-    parser.add_argument("--keypoint_type", choices=["normalized", "world"], default="normalized", help="Tipo de keypoints")
+    if keypoints_list:
+        id_keypoint = f"{next_id:05d}"  # zero-padded (ex: 00001)
+        output_csv = os.path.join(DATA_KEYPOINTS, f"{id_keypoint}.csv")
 
-    args = parser.parse_args()
+        df_keypoints = pd.DataFrame(keypoints_list)
+        df_keypoints.to_csv(output_csv, index=False)
+        print(f"[INFO] Keypoints salvos em: {output_csv}")
 
-    # Criar diretório de saída se não existir
-    os.makedirs(DATA_KEYPOINTS, exist_ok=True)
+        kp_entry = {
+            "id_keypoint": id_keypoint,
+            "extrator": "mediapipe",
+            "n_frames": frame_count,
+            "extraction": args.extraction,
+            "model": args.model,
+            "keypoints_type": args.keypoints,
+            "min_detection_confidence": args.mdc,
+            "min_tracking_confidence": args.mtc,
+            "max_persons": args.max
+        }
+        kp_entry.update(row.to_dict())
+        keypoints_metadata.append(kp_entry)
 
-    # Vídeos a processar
-    video_names = pd.read_csv(os.path.join(VIDEO_LISTS, args.list_name), header=None)
-    video_names_set = set(video_names.iloc[:, 0].astype(str))
+        next_id += 1
+    else:
+        print(f"[AVISO] Nenhum keypoint extraído: {id_video}")
 
-    # Carregar metadados existentes ou iniciar um novo
-    metadata_df = pd.read_csv(METADATA_KEYPOINTS) if os.path.exists(METADATA_KEYPOINTS) else pd.DataFrame()
+# Atualiza o CSV de metadados
+df_metadata_new = pd.DataFrame(keypoints_metadata)
 
-    model_complexity_map = {"lite": 0, "full": 1, "heavy": 2}
-    model_name = args.model
-    model_complexity = model_complexity_map[model_name]
+if os.path.exists(METADATA_KEYPOINTS):
+    df_existing = pd.read_csv(METADATA_KEYPOINTS)
+    df_combined = pd.concat([df_existing, df_metadata_new], ignore_index=True)
+else:
+    df_combined = df_metadata_new
 
-    # Processar cada vídeo
-    for video_file in os.listdir(DATA_VIDEOS):
-        base_name, ext = os.path.splitext(video_file)
-        if base_name not in video_names_set:
-            continue
-        if ext.lower() not in ['.avi', '.mp4', '.mkv', '.mov', '.flv', '.wmv', '.mpeg', '.mpg']:
-            continue
-
-        video_path = os.path.join(DATA_VIDEOS, video_file)
-
-        if args.visual:
-            cv2.namedWindow("Pose Detection", cv2.WND_PROP_FULLSCREEN)
-            cv2.setWindowProperty("Pose Detection", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-
-        print(f"[INFO] Processando: {video_file} | Modelo: {model_name} | Keypoints: {args.keypoint_type}")
-
-        video_metadata_row = video_names[video_names.iloc[:, 0] == base_name].iloc[0].to_dict()
-
-        metadata_df = process_video(
-            video_path=video_path,
-            output_folder=DATA_KEYPOINTS,
-            model_name=model_name,
-            model_complexity=model_complexity,
-            show_visual=args.visual,
-            keypoint_type=args.keypoint_type,
-            video_metadata_row=video_metadata_row,
-            metadata_df=metadata_df
-        )
-
-    print(metadata_df)
-    # Salvar metadados atualizados
-    metadata_df.to_csv(METADATA_KEYPOINTS, index=False)
-
-    if args.visual:
-        cv2.destroyAllWindows()
-
-
-if __name__ == "__main__":
-    main()
+df_combined.to_csv(METADATA_KEYPOINTS, index=False)
+print(f"[INFO] Metadados dos keypoints atualizados em: {METADATA_KEYPOINTS}")
