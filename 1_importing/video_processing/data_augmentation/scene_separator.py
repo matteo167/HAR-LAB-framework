@@ -1,0 +1,1 @@
+#separa os vídeos por cenas cada mudança abrupta de câmera é uma cena nova
