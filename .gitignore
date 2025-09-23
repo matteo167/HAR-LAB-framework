@@ -1,4 +1,5 @@
 data/
 metadata/
-lists/
+subsets/
 __pycache__/
+script_log.txt

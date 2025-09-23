@@ -1,9 +1,11 @@
 import os
+import datetime
 
 # Estrutura de diretórios e arquivos
+log_file = "script_log.txt"
 structure = {
-    "data": ["1_videos", "2_keypoints", "3_models", "4_metrics"],
-    "lists": ["1_videos", "2_keypoints", "3_models", "4_metrics"],
+    "data": ["1_videos", "2_keypoints", "3_models", "4_metrics", "raw_data"],
+    "subsets": ["1_videos", "2_keypoints", "3_models", "4_metrics"],
     "metadata": ["1_videos.csv", "2_keypoints.csv", "3_models.csv", "4_metrics.csv"]
 }
 
@@ -11,6 +13,10 @@ structure = {
 headers = {
     "1_videos.csv": "id,dataset,name,duration\n"
 }
+
+with open(log_file, "a") as log:
+    log.write(f"[{datetime.datetime.now()}] - Iniciando a criação da estrutura de diretórios.\n")
+
 
 # Criação dos diretórios e arquivos
 for base_folder, items in structure.items():
