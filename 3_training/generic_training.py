@@ -10,11 +10,85 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
 import tensorflow_addons as tfa
 import matplotlib.pyplot as plt
-
+import importlib
 import sys
 
-# sys.path.append('./architectures')
+# Adiciona a pasta architectures ao path
+sys.path.append('./architectures')
 
+def load_model_architecture(model_name):
+    """
+    Carrega dinamicamente a arquitetura do modelo baseado no nome do arquivo
+    
+    Args:
+        model_name: Nome do arquivo do modelo (ex: 'fnet', 'transformer')
+    
+    Returns:
+        Função create_model do módulo carregado
+    """
+    try:
+        # Importa o módulo dinamicamente
+        module = importlib.import_module(model_name)
+        
+        # Verifica se a função create_model existe
+        if hasattr(module, 'create_model'):
+            create_model_func = module.create_model
+            # Tenta obter informações do modelo se disponível
+            model_info = {}
+            if hasattr(module, 'get_model_info'):
+                model_info = module.get_model_info()
+            else:
+                model_info = {
+                    'name': model_name.capitalize(),
+                    'description': f'Modelo {model_name}',
+                    'parameters': 'N/A'
+                }
+            return create_model_func, model_info
+        else:
+            raise AttributeError(f"Função 'create_model' não encontrada em {model_name}")
+            
+    except ImportError as e:
+        raise ImportError(f"Arquivo de modelo '{model_name}.py' não encontrado na pasta 'architectures'") from e
+    
+def create_model(model_architecture='fnet'):
+    """
+    Cria e compila o modelo usando arquitetura específica
+    
+    Args:
+        model_architecture: Nome do arquivo do modelo (sem extensão .py)
+    """
+    # Carrega a função de criação do modelo
+    create_model_func, model_info = load_model_architecture(model_architecture)
+    
+    # Cria o modelo
+    model = create_model_func()
+    
+    # Compila o modelo
+    model.compile(
+        optimizer='adam', 
+        loss='binary_crossentropy',
+        metrics=['accuracy']
+    )
+    
+    print(f"✅ Modelo carregado: {model_info['name']}")
+    print(f"📝 Descrição: {model_info['description']}")
+    if 'parameters' in model_info:
+        print(f"🔢 Parâmetros estimados: {model_info['parameters']}")
+    
+    return model
+
+def list_available_architectures():
+    """Lista todos os modelos disponíveis na pasta architectures"""
+    architectures_dir = './architectures'
+    available_architectures = []
+    
+    if os.path.exists(architectures_dir):
+        for file in os.listdir(architectures_dir):
+            if file.endswith('.py') and file != '__init__.py' and not file.startswith('_'):
+                model_name = file[:-3]  # Remove a extensão .py
+                available_architectures.append(model_name)
+    
+    return available_architectures
 
 def load_data(arquivo_metadados, pasta_base, split):
     metadados = pd.read_csv(arquivo_metadados)
@@ -57,37 +131,6 @@ def load_data(arquivo_metadados, pasta_base, split):
     
     return np.array(dados), np.array(rotulos)
 
-
-
-
-
-def create_model():
-    """
-    Cria e compila o modelo de rede neural
-    """
-    input = keras.Input(shape=(44, 132))
-    position_embeddings = SinePositionEncoding()(input)
-    input_position = input + position_embeddings
-    x = FNetEncoder(intermediate_dim=64)(input_position)
-    x = layers.Permute((2, 1))(x)
-    x = layers.GlobalAveragePooling1D()(x)
-    x = layers.Dense(22, activation="relu")(x)
-    output = layers.Dense(1, activation='sigmoid')(x)
-
-    model = keras.Model(inputs=input, outputs=output)
-    
-    model.compile(
-        optimizer='adam', 
-        loss='binary_crossentropy',
-        metrics=['accuracy']
-    )
-    
-    return model
-
-
-
-
-
 def plot_training_history(history):
     """
     Plota gráficos de accuracy e loss do treinamento
@@ -113,7 +156,6 @@ def plot_training_history(history):
     
     plt.tight_layout()
     plt.show()
-
 
 def evaluate_model(model, test_dados, test_rotulos):
     """
@@ -149,7 +191,6 @@ def evaluate_model(model, test_dados, test_rotulos):
 
     return y_pred, y_pred_binary, conf_matrix, roc_auc
 
-
 def print_data_distribution(train_rotulos, val_rotulos, test_rotulos):
     """
     Imprime a distribuição dos dados entre classes
@@ -158,31 +199,44 @@ def print_data_distribution(train_rotulos, val_rotulos, test_rotulos):
     print(f"Distribuição validação - Quedas: {np.sum(val_rotulos == 1)}, Não-quedas: {np.sum(val_rotulos == 0)}")
     print(f"Distribuição teste - Quedas: {np.sum(test_rotulos == 1)}, Não-quedas: {np.sum(test_rotulos == 0)}")
 
-
 def main():
     # Configurações
     arquivo_metadados = "../metadata/2_keypoints.csv" 
     pasta_base = "../data/2_keypoints"
     
+    # Lista modelos disponíveis
+    available_architectures = list_available_architectures()
+    print("🧠 Arquiteturas disponíveis:")
+    for i, model_name in enumerate(available_architectures, 1):
+        print(f"   {i}. {model_name}")
+    
+    if not available_architectures:
+        print("❌ Nenhuma arquitetura encontrada na pasta 'architectures'")
+        return
+    
+    # Seleciona arquitetura
+    selected_architecture = 'fnet'  # Altere aqui para testar diferentes arquiteturas
+    # Ou selecione pela lista: selected_architecture = available_architectures[0]
+    
+    print(f"\n🎯 Selecionando arquitetura: {selected_architecture}")
+    
     # Carregar dados
-    print("Carregando dados de treinamento...")
+    print("📥 Carregando dados de treinamento...")
     train_dados, train_rotulos = load_data(arquivo_metadados, pasta_base, 'train')
-    print("Carregando dados de validação...")
+    print("📥 Carregando dados de validação...")
     val_dados, val_rotulos = load_data(arquivo_metadados, pasta_base, 'val')
-    print("Carregando dados de teste...")
+    print("📥 Carregando dados de teste...")
     test_dados, test_rotulos = load_data(arquivo_metadados, pasta_base, 'test')
 
-
-    print(f"Treinamento: {len(train_dados)} amostras")
-    print(f"Validação: {len(val_dados)} amostras")
-    print(f"Teste: {len(test_dados)} amostras")
+    print(f"📊 Treinamento: {len(train_dados)} amostras")
+    print(f"📊 Validação: {len(val_dados)} amostras")
+    print(f"📊 Teste: {len(test_dados)} amostras")
     print_data_distribution(train_rotulos, val_rotulos, test_rotulos)
 
-
     # Criar modelo
-    model = create_model()
+    model = create_model(selected_architecture)
     
-    print('///////////////////////////')
+    print('-' * 50)
     model.summary()
 
     # Configurar early stopping
@@ -193,13 +247,14 @@ def main():
     )
 
     # Treinar modelo
-    print("Iniciando treinamento...")
+    print("🚀 Iniciando treinamento...")
     history = model.fit(
         train_dados, train_rotulos, 
         epochs=1000, 
         batch_size=32, 
         validation_data=(val_dados, val_rotulos), 
-        callbacks=[early_stopping]
+        callbacks=[early_stopping],
+        verbose=1
     )
 
     # Plotar histórico de treinamento
@@ -210,12 +265,12 @@ def main():
 
     # Estatísticas do modelo
     num_params = model.count_params()
-    print(f'Number of parameters in the saved model: {num_params}')
+    print(f'🔢 Número de parâmetros no modelo: {num_params}')
 
     # Salvar modelo
-    model.save('../data/3_models/trained_model.keras')
-    print("Modelo salvo com sucesso!")
-
+    model_save_path = f'../data/3_models/trained_model_{selected_architecture}.keras'
+    model.save(model_save_path)
+    print(f"💾 Modelo salvo em: {model_save_path}")
 
 if __name__ == '__main__':
     main()
